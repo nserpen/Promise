@@ -16,27 +16,38 @@ public enum Promises {
     public static func all<T>(_ promises: [Promise<T>]) -> Promise<[T]> {
         return Promise<[T]>(work: { fulfill, reject in
             guard !promises.isEmpty else { fulfill([]); return }
-            let group = DispatchGroup()
-            var all = [T]()
-            var error: Error? = nil
             for promise in promises {
-                group.enter()
                 promise.then({ value in
-                    all.append(value)
-                    group.leave()
-                }).catch({ err in
-                    error = err
-                    group.leave()
+                    if !promises.contains(where: { $0.isRejected || $0.isPending }) {
+                        fulfill(promises.flatMap({ $0.value }))
+                    }
+                }).catch({ error in
+                    reject(error)
                 })
             }
-            group.notify(queue: DispatchQueue.main) {
-                if let error = error {
-                    reject(error)
-                } else {
-                    fulfill(all)
-                }
-            }
         })
+    }
+
+    /// Await for the promise you give it to fulfill and return value
+    public static func await<T>(_ promise: () -> Promise<T>) throws -> T {
+        var result: T!
+        var error: Error?
+        let group = DispatchGroup()
+        group.enter()
+        promise()
+            .then { r -> () in
+                result = r
+                group.leave()
+            }.catch { err in
+                error = err
+                group.leave()
+        }
+        group.wait()
+
+        if let err = error {
+            throw err
+        }
+        return result
     }
 
     /// Resolves itself after some delay.
